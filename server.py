@@ -17,6 +17,7 @@ PRODUCTS = {
 # ---------------------------------------------------------------- data
 cache = None
 lock = threading.Lock()
+load_lock = threading.Lock()
 
 
 def cents(x):
@@ -66,11 +67,12 @@ threading.Thread(target=background, daemon=True).start()
 
 
 def get_data():
-    for _ in range(300):
-        if cache:
-            return cache
-        time.sleep(0.1)
-    raise RuntimeError("ledger not loaded")
+    global cache
+    if cache is None:
+        with load_lock:
+            if cache is None:
+                refresh()
+    return cache
 
 
 # ---------------------------------------------------------------- dates
@@ -356,7 +358,12 @@ def main(path):
         if q:  # debug helper: /?q=your question
             p = parse(q)
             return jsonify({"plan": p, "answer": execute(p, get_data())})
-        return jsonify({"status": "ok", "loaded": cache is not None})
+        err = None
+        try:
+            get_data()
+        except Exception as e:
+            err = repr(e)[:300]
+        return jsonify({"status": "ok", "loaded": cache is not None, "error": err})
     body = request.get_json(silent=True)
     if not isinstance(body, dict):
         return jsonify({"answer": None, "error": "bad json"}), 400
